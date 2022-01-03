@@ -1,0 +1,232 @@
+library(Seurat)
+library(SeuratObject)
+library(tidyverse)
+
+
+path_dir <- list.dirs()
+
+data_1 <- Seurat::Read10X(data.dir = "/home/rj/Desktop/single_cell_analysis/datasinglecell/NP4/",gene.column = 2)
+data_2 <- Seurat::Read10X(data.dir = "/home/rj/Desktop/single_cell_analysis/datasinglecell/NP3/",gene.column = 2)
+
+
+pbmc <- CreateSeuratObject(counts = data_1, min.cells = 3, min.features  = 200, project = "before", assay = "RNA")
+pbmc2 <- CreateSeuratObject(counts = data_2, min.cells = 3, min.features  = 200, project = "after", assay = "RNA")
+
+pbmc.combined <- merge(pbmc, y = pbmc2, add.cell.ids = c("before", "after"), project = "PBMC_merge")
+
+unique(sapply(X = strsplit(colnames(pbmc.combined), split = "_"), FUN = "[", 1))
+table(pbmc.combined$orig.ident)
+
+pbmc.combined[["percent.mt"]] <- PercentageFeatureSet(pbmc.combined, pattern = "^MT-")
+VlnPlot(pbmc.combined, features = "percent.mt", split.by = "orig.ident")
+
+VlnPlot(pbmc.combined, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3,split.by = "orig.ident")
+
+plot1 <- FeatureScatter(pbmc.combined, feature1 = "nCount_RNA", feature2 = "percent.mt",split.by = "orig.ident")
+plot2 <- FeatureScatter(pbmc.combined, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+plot1 + plot2
+
+pbmc <- subset(pbmc.combined, subset = nFeature_RNA > 400 & nCount_RNA < 2400  & percent.mt < 5)
+
+pbmc <- NormalizeData(pbmc, normalization.method = "LogNormalize", scale.factor = 10000)
+
+
+pbmc <- FindVariableFeatures(pbmc, selection.method = "vst", nfeatures = 2400)
+
+"je soussigné DOCTEUR Pauline Mouton, certifie que dans le dossier medical ,nom prenom il n'y a pas d'antécédent médicaux, chiurgicaux ni medicamenteux" (avec en tete)
+
+# Identify the 10 most highly variable genes
+Highly <- head(VariableFeatures(pbmc),10)
+
+
+# plot variable features with and without labels
+plot1 <- VariableFeaturePlot(pbmc)
+plot2 <- LabelPoints(plot = plot1, points = Highly, repel = TRUE)
+plot1 + plot2
+
+
+# Identify the 10 most highly variable genes
+
+
+# plot variable features with and without labels
+
+
+all.genes <- rownames(pbmc)
+pbmc <- ScaleData(pbmc, features = all.genes)
+
+pbmc <- RunPCA(pbmc, features = VariableFeatures(object = pbmc))
+DimPlot(pbmc, reduction = "pca")
+
+print(pbmc[["pca"]], dims = 1:5, nfeatures = 5)
+VizDimLoadings(pbmc, dims = 1:5, reduction = "pca")
+
+ElbowPlot(pbmc)
+
+
+pbmc <- FindNeighbors(pbmc, dims = 1:5)
+pbmc <- FindClusters(pbmc, resolution = 0.5)
+pbmc <- RunUMAP(pbmc, dims = 1:5)
+
+pbmc_tsne <- FindNeighbors(pbmc_tsne, dims = 1:5)
+
+pbmc_tsne <- FindClusters(pbmc_tsne, resolution = 0.5)
+
+pbmc_tsne <- RunTSNE(pbmc_tsne, features = VariableFeatures(object = pbmc))
+DimPlot(pbmc_tsne, reduction = "tsne")
+
+
+
+DimPlot(pbmc, reduction = "umap")
+
+
+
+# VlnPlot(pbmc, features = c("CD24","PRSS8","EHF","SPINT1","ESRP1","EPCAM",
+#                            "AP1M2","ERBB3","CLDN7","COL6A3","SYNPO","THBS2",
+#                            "LTBP2","FBN1","COL5A2","SPARC","MCAM"))
+# 
+# FeaturePlot(pbmc, features = c("CD24","PRSS8","EHF","SPINT1","ESRP1","EPCAM",
+#                                "AP1M2","ERBB3","CLDN7","COL6A3","SYNPO","THBS2",
+#                                "LTBP2","FBN1","COL5A2","SPARC","MCAM"))
+# 
+# 
+# 
+# VlnPlot(pbmc2, features = c("CD24","PRSS8","EHF","SPINT1","ESRP1","EPCAM",
+#                            "AP1M2","ERBB3","CLDN7","COL6A3","SYNPO","THBS2",
+#                            "LTBP2","FBN1","COL5A2","SPARC","MCAM"))
+# 
+# FeaturePlot(pbmc2, features = c("CD24","PRSS8","EHF","SPINT1","ESRP1","EPCAM",
+#                                "AP1M2","ERBB3","CLDN7"))
+# 
+# FeaturePlot(pbmc2, features = c("COL6A3","SYNPO","THBS2",
+#                                "LTBP2","FBN1","COL5A2","SPARC","MCAM"))
+
+
+# IL2RA TREG
+# CLDN4 CLDN7 marqueur ++
+# FeaturePlot(pbmc, features = c("IGKC","HSP90B1","SDF2L1","MYDGF"))
+
+
+macrophage_markers <- c("CD14","FCGR3A","FCGR1A","TFRC","CCR5","CD68")
+
+FeaturePlot(pbmc, features = macrophage_markers)
+
+FeaturePlot(pbmc2, features = macrophage_markers)
+
+epithelial_markers <- c("CD24","EHF","EPCAM","CLDN7","UNC5B")
+
+FeaturePlot(pbmc, features = epithelial_markers)
+
+FeaturePlot(pbmc2, features = epithelial_markers)
+
+Monocytes_markers <- c("CD2","ITGAM","CD14","FCGR3A","PECAM1","SELL","CXCR4")
+
+FeaturePlot(pbmc, features = Monocytes_markers)
+
+FeaturePlot(pbmc2, features = Monocytes_markers)
+
+Dentrit_Cells_markers <- c("CD8A","ITGAM","ITGAX","ITGAE","LY75","HLA-DRA")
+
+FeaturePlot(pbmc, features = Dentrit_Cells_markers)
+
+FeaturePlot(pbmc2, features = Dentrit_Cells_markers)
+
+Granulocytes_markers <- c("IL3RA","SPN","CD44","PTPRC","ICAM1","CD63",
+                          "CD69","LAMP1","IL3RA","TLR4")
+
+FeaturePlot(pbmc, features = Granulocytes_markers)
+
+FeaturePlot(pbmc2, features = Granulocytes_markers)
+
+Lymphocytes_B_markers <- c("CD19","MS4A1","CR2","CD22","CD40",
+                           "CD72","CD79A","BCR","CD79B","SDC1")
+
+FeaturePlot(pbmc, features = Lymphocytes_B_markers)
+
+FeaturePlot(pbmc2, features = Lymphocytes_B_markers)
+
+Platelets_markers <- c("CD9","PECAM1")
+
+FeaturePlot(pbmc, features = Platelets_markers)
+
+FeaturePlot(pbmc2, features = Platelets_markers)
+
+CD8_T_cells_markers <- c("CD3D","CD247","CD3G")
+
+FeaturePlot(pbmc, features = CD8_T_cells_markers)
+
+FeaturePlot(pbmc2, features = CD8_T_cells_markers)
+
+Mesenchymal_tumorals_markers <- c("COL6A3","SYNPO","THBS2","LTBP2","FBN1",
+                                  "COL5A2","SPARC","MCAM")
+
+FeaturePlot(pbmc, features = Mesenchymal_tumorals_markers)
+
+FeaturePlot(pbmc2, features = Mesenchymal_tumorals_markers)
+
+Natural_killer_markers <- c("PROM1","CD34","KIT","CD244","KLRD1","KLRK1","KLRC1")
+
+FeaturePlot(pbmc, features = Natural_killer_markers)
+
+FeaturePlot(pbmc2, features = Natural_killer_markers)
+
+pbmc.markers <- FindAllMarkers(pbmc, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+pbmc.markers %>%
+  group_by(cluster) %>%
+  top_n(n = 10, wt = avg_log2FC) -> top10
+DoHeatmap(pbmc, features = top10$gene) + NoLegend()
+
+pbmc2.markers <- FindAllMarkers(pbmc2, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+pbmc2.markers %>%
+  group_by(cluster) %>%
+  top_n(n = 10, wt = avg_log2FC) -> top10
+DoHeatmap(pbmc2, features = top10$gene) + NoLegend()
+
+
+
+new.cluster.ids <- c("0. Granulocytes, Monocytes, Macrophages",
+                     "1. Granulocytes, Monocytes, Macrophages",
+                     "2. Granulocytes, Monocytes, Macrophages",
+                     "3. Granulocytes, Monocytes, Macrophages",
+                     "4. Epitheliale Cells",
+                     "5. CD8+ cells",
+                     "6. NKs",
+                     "7. Unkown",
+                     "8. Unkown")
+
+new.cluster.ids2 <- c("0. NK/Basophiles",
+                      "1. Granulocytes",
+                      "2. T-cells",
+                      "3. Epithelial cells",
+                      "4. Granulocytes",
+                      "5. Epithelial cells",
+                      "6. Epithelial cells",
+                      "7. Epithelial cells",
+                      "8. Immune cells",
+                      "9. Platelets",
+                      "10. Mesenchymal cells",
+                      "11. Unknown",
+                      "12. Unknown",
+                      "13. Mesenchymal cells" )
+
+names(new.cluster.ids) <- levels(pbmc)
+pbmc <- RenameIdents(pbmc, new.cluster.ids)
+DimPlot(pbmc, reduction = "umap", 
+        label = TRUE, 
+        pt.size = 0.5,
+        label.size = 4,
+        repel = TRUE) + 
+  NoLegend()
+
+
+names(new.cluster.ids2) <- levels(pbmc2)
+pbmc2 <- RenameIdents(pbmc2, new.cluster.ids2)
+DimPlot(pbmc2, reduction = "umap", 
+        label = TRUE, 
+        pt.size = 0.5,
+        label.size = 4,
+        repel = TRUE) + 
+  NoLegend()
+
+
+
+
