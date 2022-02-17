@@ -1,7 +1,7 @@
-piechart <- function(data = data, 
-                     title = "", 
-                     logical_palette_color = F,
-                     palette_color = "Set1"){
+piechart <- function(data                  = data, 
+                     title                 = "", 
+                     logical.palette.color = F,
+                     palette.color         = "Set1"){
   
   data <- as.data.frame(data)
   df <- data %>%
@@ -11,26 +11,32 @@ piechart <- function(data = data,
   
   df$prop <- round(df$prop,0)
   
-  p <- ggplot(df, aes(x=""
-                      , y=prop
-                      , fill=Var1,
-                      label=Var1)) +
-    geom_bar(stat="identity", 
-             width=1, 
-             color="white") +
-    coord_polar("y", 
-                start=0) +
+  p <- ggplot(df, aes(x     = "", 
+                      y     = prop, 
+                      fill  = Var1,
+                      label = Var1)) +
+    geom_bar(
+             stat           = "identity", 
+             width          = 1, 
+             color          = "white"
+      ) +
+    coord_polar(theta       = "y", #check if theta is the good argument
+                start       = 0) +
     theme_void() +
-    guides(fill = guide_legend(title = "Cell type"))
-  if(logical_palette_color == TRUE){
-    p + scale_fill_manual(values=palette_color)
+    guides(fill             = guide_legend(
+      title                 = "Cell type")
+      )
+  if(logical.palette.color == TRUE){
+    p + scale_fill_manual(values = palette.color)
   }else{
-    p + scale_fill_brewer(palette = palette_color)
+    p + scale_fill_brewer(palette = palette.color)
   }
-  p <- p +  geom_text_repel(aes(y = ypos,
-                                label = paste0(round(prop,2),"%")), 
-                                color = "black", size=6) + 
-    labs(title = as.character(title))
+  p <- p +  geom_text_repel(
+                  aes(y     = ypos,
+                      label = paste0(round(prop,2),"%")), 
+                      color = "black", 
+                      size  = 6) + 
+    labs(title  = as.character(title))
   
   return(
     list(
@@ -40,7 +46,8 @@ piechart <- function(data = data,
 }
 
 
-GeomSplitViolin <- ggproto("GeomSplitViolin", GeomViolin, 
+GeomSplitViolin <- ggproto("GeomSplitViolin", 
+                           GeomViolin, 
                            draw_group = function(self, 
                                                  data, 
                                                  ..., 
@@ -94,19 +101,21 @@ geom_split_violin <- function(mapping = NULL,
 }
 
 
-boostrap_sampling <- function(nb.sampling = 100,
+boostrap_sampling <- function(nb.sampling     = 100,
                               MARGIN,
                               dataset.to.sample,
                               size,
                               logical.replace = TRUE){
+  #TO DO : add a FUN argument in order to manipulate data
+  
   if(logical.replace == FALSE){
-    if(length(rownames(dataset.to.sample)) < nb.sampling){
-      stop("length of row to resample is inferior to the number of sampling")
-    }else if(length(colnames(dataset.to.sample)) < nb.sampling){
-      stop("length of column to resample is inferior to the number of sampling")
-    }
-  }else{
-  if(MARGIN == 1){
+     if(MARGIN == 1 & length(rownames(metrics_nt)) < 100){
+    stop("length of row to resample is inferior to the number of sampling")
+  }else if(MARGIN == 2 & length(colnames(metrics_nt)) < 100){
+    print("check colname length")
+    stop("length of column to resample is inferior to the number of sampling")
+  }
+  }else if(MARGIN == 1){
     tmp_list <- lapply(1:nb.sampling,function(i){
       cat('boostrap sampling : ',i,"/",nb.sampling,"\n")
       tpm_data <- dataset.to.sample[sample(
@@ -125,10 +134,54 @@ boostrap_sampling <- function(nb.sampling = 100,
       )]
     })
   }else{
-    stop("argument MARGIN indicates (1) rows and (2) columns.")
+        if(MARGIN == 1){
+          print("lapply check")
+          tmp_list <- lapply(1:nb.sampling,function(i){
+            cat('boostrap sampling : ',i,"/",nb.sampling,"\n")
+            tpm_data <- dataset.to.sample[sample(
+              rownames(dataset.to.sample),
+              size    = size,
+              replace = logical.replace
+            ),]
+          })
+        }else if(MARGIN == 2){
+          print("lapply check")
+          tmp_list <- lapply(1:nb.sampling,function(i){
+            cat('boostrap sampling : ',i,"/",nb.sampling,"\n")
+            tpm_data <- dataset.to.sample[,sample(
+              colnames(dataset.to.sample),
+              size    = size,
+              replace = logical.replace
+            )]
+          })
+        }else{
+          stop("argument MARGIN indicates (1) rows and (2) columns.")
+        }
+    }
+    return(tmp_list)
+}
+
+boostrap_comparaison_function <- function(list.to.use,
+                                          dataframe.to.use,
+                                          col.to.check,
+                                          FUN = NULL,
+                                          value.to.get = NULL){
+  if(!is.null(FUN)){
+    
+  lapply(1:length(list.to.use),function(i){
+    tmp_df       <- list.to.use[[i]]
+    
+    tmp_function <- do.call(what = FUN,
+                            args=list(tmp_df[,col.to.check],
+                                      dataframe.to.use[,col.to.check]))
+    tmp_result   <- tmp_function[[value.to.get]]
+
+  })
+    
+    }else{
+    
+    lapply(1:length(list.to.use),function(i){
+      tmp_df     <- list.to.use[[i]]
+      })
   }
 }
-  return(tmp_list)
-}
-
-
