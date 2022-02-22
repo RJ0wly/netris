@@ -185,3 +185,170 @@ boostrap_comparaison_function <- function(list.to.use,
       })
   }
 }
+
+change_column_name <- function(data = data,
+                                old.name,
+                                new.name){
+    if(!is.character(old.name) | !is.character(new.name) ){
+      stop("old.name or new.name is not a character type")
+    }else{colnames(data)[which(names(data) == old.name)] <- new.name
+  }
+}
+
+logistic_regression_bionomial <- function(training.data       = training.data,
+                                          testing.data        = testing.data,
+                                          var.name.to.predict = var.name.to.predict,
+                                          classes.to.predict  = classes.to.predict,
+                                          testing.response    = testing.response){
+  
+  dep <- deparse(substitute(var.name.to.predict))
+  dep <- paste0("factor(", dep, ")")
+  fmla <- paste0(dep, "~.")
+  fmla <- as.formula(fmla)
+  
+  model              <- glm(formula = fmla, 
+                             data   = training.data, 
+                             family = "binomial")
+  list_summary_model <- summary(model)
+  probabilities      <- model %>% predict(testing.data, 
+                                          type   = "response")
+  
+  predicted_classes  <- ifelse(probabilities> 0.5, classes.to.predict[1], classes.to.predict[2])
+  accuracy           <- mean(predicted_classes == testing.response)
+  
+  plot_roc = roc(testing.response~ probabilities,
+                 plot      = TRUE, 
+                 print.auc = TRUE)
+  
+  cat("Model accuracy is",accuracy,"% : \n")
+  print(list_summary_model[["coefficients"]])
+  
+  
+  
+  res <- list("model summary"  = list_summary_model,
+              "predict classes" = predicted_classes,
+              "predict obj"     = probabilities,
+              "accuracy"        = accuracy,
+              "roc curve"       = plot_roc)
+}
+
+
+counts_and_create_dataframe_from_a_list<- function(list.to.use){
+  unlist_list <- unlist(list.to.use)
+  counts_and_make_df <- as.data.frame(table(unlist_list))
+  #add percent
+  counts_and_make_df$percent <- counts_and_make_df$Freq*100/max(counts_and_make_df$Freq)
+  return(counts_and_make_df)
+}
+
+bootstrap_lasso=function(x, 
+                         y,
+                         bs          = 10, 
+                         kfold       = 10,
+                         family      = "binomial",
+                         standardize = FALSE,
+                         maxit       = 10^5){
+  rowx <- nrow(x)
+  n    <- length(y)
+  if (rowx != n){
+    stop("The number of rows in x is not equal to the length of y!")
+  }
+  res <- lapply(1:bs,function(i){
+    start_time= as.numeric(Sys.time())
+    repeat{
+      s <- sample(n, replace=TRUE)
+      # repeat while it does not have at least two discrete value from each group
+      if(length(table(y[s])) >= 2 & length(table(y[-s])) >= 2)
+        break
+    }
+    # selecting row
+    BoostrapX           <- as.matrix(x[s, ])
+    colnames(BoostrapX) <- colnames(x)
+    BoostrapY           <- y[s]
+    
+    # logistic regression lasso
+    if(family == "binomial"){
+      
+      fit       <- glmnet(x      = BoostrapX, 
+                          y      = BoostrapY,
+                          family =  "binomial",
+                          standardize = FALSE)
+      
+      cvfit     <- cv.glmnet(x            = BoostrapX,
+                             y                = BoostrapY,
+                             type.measure     = "auc",
+                             nfolds           = kfold,
+                             family           = "binomial",
+                             alpha            = 1,
+                             maxit            = maxit,
+                             standardize      = standardize)
+      
+      tmp_coeffs <- coef(object  = fit, 
+                         s       = cvfit$lambda.min)
+      
+      best_lam   <- cvfit$lambda.min
+      
+      variable_selected <- tmp_coeffs@Dimnames[[1]][tmp_coeffs@i + 1]
+      variable_selected <- variable_selected[-1]
+    }
+    
+    end_time     <- as.numeric(Sys.time())
+    cat("Boostrap ", i,"/",bs, "time taken",end_time - start_time,"s\n")
+    
+    model_final <- list("fit" = fit,
+                        "cvfit" = cvfit,
+                        "selected variable" = variable_selected)
+  })
+  return(res)
+}
+
+reduction_plot <- function(object, 
+                           method.of.reduction = c("pca","tsne","umap"),
+                           list.to.color,
+                           verbose = TRUE){
+  res <- list()
+  to_plot <- function(data){
+    lapply(1:length(list.to.color),function(i){
+      to_color <- list.to.color[[i]]
+      ggplot(data, aes(x=V1,y=V2,color = to_color)) + 
+        geom_point(size=1,alpha=0.7) +
+        theme_light() +
+        xlab("PC1") +
+        ylab("PC2") +
+        scale_color_discrete(paste0(names(list.to.color[i])))})
+  }
+  
+  if("umap" %in% method.of.reduction){
+    if(verbose){cat("umap running ... \n")}
+    umap_data      <- uwot::umap(X = object[,sapply(object, class) == "numeric"],
+                                 verbose = TRUE)
+    umap_data      <- as.data.frame(umap_data)
+    umap_list_plot <- to_plot(umap_data)
+    res <- c(res, "umap" = list(umap_list_plot))
+
+  }
+  if("tsne" %in% method.of.reduction){
+    if(verbose){cat("tsne running ... \n")}
+    rtsne_data     <- Rtsne::Rtsne(X = as.matrix(object[,sapply(object, class) == "numeric"]),
+          pca_center = FALSE,
+          normalize = FALSE,
+          check_duplicates = FALSE,
+          verbose = TRUE)
+    rtsne_data     <- as.data.frame(rtsne_data[["Y"]])
+    tsne_list_plot <- to_plot(rtsne_data)
+    res <- c(res, "tsne" = list(tsne_list_plot))
+  }
+  if("pca" %in% method.of.reduction){
+    if(verbose){cat("pca running ... \n")}
+    pca_rec       <- recipe(~.,
+                        data = object[,sapply(object, class) == "numeric"]) %>%
+      step_pca(all_predictors(),num_comp = 2)
+
+    pca_prep      <- prep(pca_rec)
+    pca_data      <- bake(pca_prep, object)
+    colnames(pca_data) <- c("V1","V2")
+    pca_list_plot <- to_plot(pca_data)
+    res <- c(res, "pca" = list(pca_list_plot))
+  }
+  return(res)
+}
