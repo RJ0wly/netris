@@ -1,0 +1,279 @@
+base::lapply(c("Seurat",
+               "tidyverse",
+               "SeuratObject",
+               "future",
+               "rstatix",
+               "singscore",
+               "escape",
+               "dittoSeq",
+               "ggpubr",
+               "ggrepel",
+               "future",
+               "uwot",
+               "caret",
+               "DESeq2",
+               "tidymodels",
+               "glmnet",
+               "Rtsne",
+               "caret",
+               "pROC"),
+             require,character.only=T)
+
+main_dir <- getwd() # your main directory
+
+source(paste0(main_dir,"/Utils_single_cell.R")) # useful functions
+
+file_path_to_data <- paste0(main_dir,
+                            "/dataset/") # dataset directory
+
+
+for(directory_name in dir(file_path_to_data,
+                   recursive = FALSE,ignore.case = T)){
+  
+
+  directory_path <- paste0(paste0(paste0(file_path_to_data,directory_name))) # intermediate path directory
+  
+  dataset <- readRDS(paste0(paste0(paste0(file_path_to_data,directory_name),"/"),list.files(directory_path)[1])) # top DEG gene and most epithelials and mesenchymals cells dataframe
+  seurat_obj_anchors_combined <- readRDS(paste0(paste0(paste0(file_path_to_data,directory_name),"/"),list.files(directory_path)[2])) # seurat object
+
+  dataset$statut <- as.factor(dataset$statut)
+  dataset_split <- initial_split(dataset, prop = 0.70, strata = statut)
+  #train data
+  data_train <- training(dataset_split)
+  x_train <- data_train[,1:length(dataset)-1]
+  y_train <- data_train[,"statut"]
+  #test data
+  data_test  <-  testing(dataset_split)
+  x_test <- data_test[,1:length(dataset)-1]
+  y_test <- data_test[,"statut"]
+  
+  x_train <- model.matrix( ~ ., x_train)
+  
+  # logistic regression bolasso as proposed by Francis Bach
+  boostrap_regression_lasso    <- bootstrap_lasso(x         = x_train,
+                                                  y         = y_train,
+                                                  bs        = 100,
+                                                  kfold     = 5,
+                                                  family    = "binomial",
+                                                  maxit     = 10^5,
+                                                  standardize = FALSE)
+  
+  # pulling all selected variable from lr-bolasso in a list
+  list_variable_selected <- lapply(1:length(boostrap_regression_lasso),
+                                   function(i){boostrap_regression_lasso[[i]][["selected variable"]]
+  })
+  
+  # counting the occurence of each selected variable and selecting the ones that are the most present in each lr-bolasso
+  counts_variable_selected <- counts_and_create_dataframe_from_a_list(list_variable_selected)
+  filter <- counts_variable_selected$percent >= 80
+  gene_selected <- as.character(counts_variable_selected[filter,]$unlist_list)
+  
+  # check if data selected gene are in the column name of the dataset before testing
+  filter <- intersect(colnames(data_train), gene_selected)
+  
+  # lr-bolasso test
+  glmb <- logistic_regression_bionomial(data_train[,c(filter,"statut")],
+                                        data_test[,c(filter,"statut")],
+                                        statut,
+                                        c("Mesenchymal-like","Epithelial-like"),
+                                        y_test)
+  
+  # prepare the dataset 
+  data <- as.data.frame(seurat_obj_anchors_combined@assays[["RNA"]]@data)
+  
+  filter <- intersect(rownames(data), gene_selected)
+  
+  sub_data <- as.data.frame(t(data[filter,]))
+  
+  metrics <- seurat_obj_anchors_combined@meta.data
+  metrics$mak_score <- metrics$mesenchymal - metrics$epithelial
+  metrics <- metrics %>% mutate(status_EMT = case_when(
+    mak_score>=quantile(metrics$mak_score,0.75) ~ "Mesenchymal-like",
+    TRUE ~ "Epithelial-like"))
+  
+  sub_data  <- cbind(sub_data,"statut"=metrics$status_EMT)
+  
+  dataset_split <- initial_split(sub_data, prop = 0.80, strata = statut)
+  data_train <- training(dataset_split)
+  data_train$statut <- as.factor(data_train$statut)
+  data_test  <-  testing(dataset_split)
+  data_test$statut <- as.factor(data_test$statut)
+  y_test <- data_test[,"statut"]
+  
+  # logistic regression on the whole cells of the tumor compartiment
+  glmb <- logistic_regression_bionomial(data_train,
+                                        data_test,
+                                        statut,
+                                        c("Mesenchymal-like","Epithelial-like"),
+                                        y_test)
+  
+  # start test 
+  # library(rpart.plot)
+  # tree_spec <- decision_tree() %>%
+  #   set_engine("rpart")
+  # 
+  # class_tree_spec <- tree_spec %>%
+  #   set_mode("classification")
+  # 
+  # class_tree_fit <- class_tree_spec %>%
+  #   fit(statut ~ ., data = data_train)
+  # 
+  # class_tree_fit %>%
+  #   extract_fit_engine() %>%
+  #   rpart.plot()
+  # 
+  # augment(class_tree_fit, new_data = data_train) %>%
+  #   accuracy(truth = statut, estimate = .pred_class)
+  # 
+  # augment(class_tree_fit, new_data = data_train) %>%
+  #   conf_mat(truth = statut, estimate = .pred_class)
+  # 
+  # augment(class_tree_fit, new_data = data_test) %>%
+  #   conf_mat(truth = statut, estimate = .pred_class)
+  # 
+  # augment(class_tree_fit, new_data = data_test) %>%
+  #   accuracy(truth = statut, estimate = .pred_class)
+  # 
+  # class_tree_wf <- workflow() %>%
+  #   add_model(class_tree_spec %>% set_args(cost_complexity = tune())) %>%
+  #   add_formula(statut ~ .)
+  # 
+  # data_fold <- vfold_cv(data_train)
+  # 
+  # param_grid <- grid_regular(cost_complexity(range = c(-3, -1)), levels = 10)
+  # 
+  # tune_res <- tune_grid(
+  #   class_tree_wf, 
+  #   resamples = data_fold, 
+  #   grid = param_grid, 
+  #   metrics = metric_set(accuracy)
+  # )
+  # 
+  # autoplot(tune_res)
+  # 
+  # best_complexity <- select_best(tune_res)
+  # 
+  # class_tree_final <- finalize_workflow(class_tree_wf, best_complexity)
+  # 
+  # class_tree_final_fit <- fit(class_tree_final, data = data_train)
+  # class_tree_final_fit
+  # 
+  # pdf("tree.pdf")
+  # class_tree_final_fit %>%
+  #   extract_fit_engine() %>%
+  #   rpart.plot()
+  # dev.off()
+  
+  library(randomForest)
+  bagging_spec <- rand_forest(mtry = .cols()) %>%
+    set_engine("randomForest", importance = TRUE) %>%
+    set_mode("classification")
+  
+  augment(bagging_fit, new_data = data_test) %>%
+    accuracy(truth = statut, estimate = .pred)
+  # end test
+  
+  # object containing multiple reduction dimension
+  plot_result <- reduction_plot(object = sub_data,
+                 method.of.reduction = c("umap","pca","tsne"),
+                 list.to.color = list("treatment" = metrics$orig.ident,
+                                      "statut EMT"= sub_data$statut))
+  
+  if(isFALSE(dir.exists(paste0(main_dir,"/result")))){
+    suppressWarnings(dir.create("result"))
+  }
+  
+  
+  if(getwd()  != paste0(main_dir,"/result")){
+    setwd(paste0(getwd(),"/result"))
+  }
+  
+  # create a new directory for each run
+  number_dir <- length(list.dirs(getwd(),recursive = FALSE))
+  message("result in folder name : result_",number_dir,"\n")
+  suppressWarnings(dir.create(paste0("result_",as.character(number_dir))))
+  
+  setwd(paste0(main_dir,paste0("/result/result_",as.character(number_dir))))
+  
+  # save previous plot
+  png(filename = "pca_reduction_plot.png",
+      width    = 1093,
+      height   = 545)
+  ggarrange(plotlist = plot_result[["pca"]])
+  dev.off()
+  
+  png(filename = "umap_reduction_plot.png",
+      width    = 1093,
+      height   = 545)
+  ggarrange(plotlist = plot_result[["umap"]])
+  dev.off()
+  
+  png(filename = "tsne_reduction_plot.png",
+      width    = 1093,
+      height   = 545)
+  ggarrange(plotlist = plot_result[["tsne"]])
+  dev.off()
+  
+  png(filename = "roc_curve_plot.png",
+      width    = 738,
+      height   = 545)
+  plot(glmb[["roc curve"]],
+       print.auc=TRUE,
+       col =  "blue")
+  dev.off()
+  # prepare boostrap dataset to compare gene expression value between mesenchymal cells
+  
+  metrics_data <- cbind(sub_data,"treatment"=metrics$orig.ident,"mak_score"=metrics$mak_score)
+  
+  metrics_data_mesenchymal <- metrics_data[metrics_data$statut == "Mesenchymal-like",]
+  
+  metrics_data_set1 <- metrics_data[metrics_data$statut == "Mesenchymal-like" & metrics_data$treatment == "not treated",]
+  metrics_data_set2  <- metrics_data[metrics_data$statut == "Mesenchymal-like" & metrics_data$treatment == "treated",]
+  
+  if(nrow(metrics_data_set1) < nrow(metrics_data_set2)){
+    metrics_data_less <- metrics_data_set1
+    metrics_data_plus <- metrics_data_set2
+    rm(metrics_data_set1,metrics_data_set2)
+  }else{
+    metrics_data_less <- metrics_data_set2
+    metrics_data_plus <- metrics_data_set1
+    rm(metrics_data_set1,metrics_data_set2)
+  }
+  
+  for(i in filter){
+  
+    sub_data$gene_statut <- case_when(sub_data[,i] <= quantile(sub_data[,i],0.30) ~ "Low",
+                                      sub_data[,i] <= quantile(sub_data[,i],0.70) ~ "High",
+                                      TRUE ~ "Medium")
+    
+    plot_result <- reduction_plot(object = sub_data,
+                               method.of.reduction = c("pca"),
+                               list.to.color = list("EMT statut" = sub_data$statut,
+                                                    "gene statut"= sub_data$gene_statut))
+    
+    png(filename = paste0(paste0("bolasso_pca_",i),".png"),
+        width    = 1385,
+        height   = 713)
+     p <- ggarrange(plotlist = plot_result[["pca"]])
+     p <- p + ggtitle(i)
+     plot(p)
+    dev.off()
+    
+    # boostrap comparision wilcox
+    mean_pvalue <- mean(sapply(1:1000,function(j){wilcox.test(sample(metrics_data_plus[,i],replace=TRUE,size=nrow(metrics_data_less)),
+                                               metrics_data_less[,i])[["p.value"]]}))
+    
+    if(mean_pvalue < 0.05){
+      png(filename = paste0(paste0("density_plot_",i),".png"),
+        width    = 943,
+        height   = 545)
+      p <- ggplot(metrics_data_mesenchymal, aes_string(x = i, fill = "treatment")) + 
+        geom_density(alpha = 0.5) + 
+        theme_light() +
+        ggtitle(paste0(i," expression level in mesenchymal cells"))
+      plot(p)
+      dev.off()
+    }
+  }
+  setwd(paste0(main_dir))
+}
