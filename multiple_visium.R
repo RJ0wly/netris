@@ -79,26 +79,42 @@ for(i in 1:length(path_list_to_file_patient)){
     load_visium_1 <- Seurat::Load10X_Spatial(data.dir   = path_list_to_file_patient[[i]][1],
                                              filename   = "filtered_feature_bc_matrix.h5",
                                              assay      = "Spatial",
-                                             slice      = "not treated")
+                                             slice      = "bftrt_")
     
     load_visium_1@meta.data <- load_visium_1@meta.data %>% 
-      mutate(orig.ident = case_when(orig.ident == "SeuratProject" ~ "not treated"))
+      mutate(orig.ident = case_when(orig.ident == "SeuratProject" ~ "before treatment"))
     
     load_visium_2 <- Seurat::Load10X_Spatial(data.dir   = path_list_to_file_patient[[i]][2],
                                              filename   = "filtered_feature_bc_matrix.h5",
                                              assay      = "Spatial",
-                                             slice      = "treated")
+                                             slice      = "aftrt_")
     
     load_visium_2@meta.data <- load_visium_2@meta.data %>% 
-      mutate(orig.ident = case_when(orig.ident == "SeuratProject" ~ "treated"))
+      mutate(orig.ident = case_when(orig.ident == "SeuratProject" ~ "after treatment"))
     
-    
+    patient_merge_data <- merge(load_visium_1, load_visium_2)
     normalized_data_1 <- SCTransform(load_visium_1, assay = "Spatial", verbose = FALSE)
     normalized_data_2 <- SCTransform(load_visium_2, assay = "Spatial", verbose = FALSE)
     
-    patient_merge_data <- merge(normalized_data_1, normalized_data_2)
+    patient_merge_data <- subset(patient_merge_data, subset = nFeature_Spatial > 500)
+    
+    patient_merge_data@meta.data$orig.ident <- factor(patient_merge_data@meta.data$orig.ident, 
+                                                      levels =c("before treatment","after treatment"))
+    
+    patient_merge_data <- SCTransform(patient_merge_data, assay = "Spatial", verbose = FALSE)
+    
+    patient_merge_data@meta.data$orig.ident <- factor(patient_merge_data@meta.data$orig.ident, 
+                                                      levels =c("before treatment","after treatment"))
+    
+    patient_merge_data@meta.data <- patient_merge_data@meta.data %>% 
+      mutate(orig.ident = case_when(orig.ident == "after treatment" ~ "after treatment",
+                                    TRUE ~ "before treatment"))
+    
+    patient_merge_data@meta.data$orig.ident <- factor(patient_merge_data@meta.data$orig.ident, 
+                                                      levels =c("before treatment","after treatment"))
+    
     # feature plot
-    spatial_features_plot <- SpatialFeaturePlot(patient_merge_data,
+    spatial_features_plot <- SpatialPlot(patient_merge_data,
                                                 features = c("NTN1","UNC5B" ,"EPCAM","PTPRC","PECAM1","ACTA2"),
                                                 alpha = c(0.05, 1),
                                                 min.cutoff = 0)
@@ -107,9 +123,6 @@ for(i in 1:length(path_list_to_file_patient)){
         width = 16)
     plot(spatial_features_plot)
     dev.off()
-    
-    
-    VariableFeatures(patient_merge_data) <- c(VariableFeatures(normalized_data_1), VariableFeatures(normalized_data_2))
     # 
     patient_merge_data <- RunPCA(patient_merge_data,
                                  assay   = "SCT",
@@ -138,41 +151,77 @@ for(i in 1:length(path_list_to_file_patient)){
     
     # algorithm 4 is Leiden clustering algorithm (supposed
     # to be better than louvain algorithm)
+    if(i == 1){
+      patient_merge_data <- FindClusters(patient_merge_data,
+                                         verbose    = FALSE,
+                                         algorithm  = 4,
+                                         resolution = 0.5)
+      
+      patient_merge_data@meta.data$ident_clustering <- patient_merge_data@meta.data$SCT_snn_res.0.5
+      
+      patient_merge_data@meta.data <- patient_merge_data@meta.data %>% 
+        mutate("ident_annotation" = case_when(ident_clustering == 1 ~ "CAFs",
+                                            ident_clustering == 2 ~ "Tumoral",
+                                            ident_clustering == 3 ~ "Tumoral",
+                                            ident_clustering == 4 ~ "Vascularized stroma"))
+    }else{
     patient_merge_data <- FindClusters(patient_merge_data,
                                        verbose    = FALSE,
                                        algorithm  = 4,
                                        resolution = 0.2)
     
+    patient_merge_data@meta.data$ident_clustering <- patient_merge_data@meta.data$SCT_snn_res.0.2
+    
+    patient_merge_data@meta.data<- patient_merge_data@meta.data %>% 
+      mutate("ident_annotation" = case_when(ident_clustering == 1 ~ "Tumoral",
+                                          ident_clustering == 2 ~ "Vascularized stroma",
+                                          ident_clustering == 3 ~ "CAFs",
+                                          ident_clustering == 4 ~ "Vascularized stroma"))
+    }
+    
     p1 <- SpatialDimPlot(patient_merge_data,
                          label      = TRUE,
-                         label.size = 3)
+                         label.size = 3,
+                         group.by = c("ident_annotation"))
     
     p2 <- DimPlot(patient_merge_data, reduction = "harmony", 
-            group.by = c("ident"))
+            group.by = c("ident_annotation"))
     
     p3 <- DimPlot(patient_merge_data, reduction = "harmony", 
                   group.by = c("orig.ident"))
     
     p4 <- p1 + p2 + p3
     
-    pdf("spatial_umap_clustering", height = 16, width = 24)
+    pdf("spatial_umap_clustering.pdf", height = 16, width = 24)
     plot(p4)
     dev.off()
     
-    gene_to_check <- c("EPCAM","CLDN5","CLDN4","CLDN7","TFF3","DRAXIN")
+    Idents(patient_merge_data) <- "ident_annotation"
+    KRT_gene_to_check <- rownames(patient_merge_data)[grep("^KRT[0-9]{2}",rownames(patient_merge_data))]
+    gene_to_check <- c("EPCAM","CLDN5","CLDN4","DRAXIN","VIM")
     
-    ftr_boxplot <- features_boxplot(patient_merge_data,c(1),gene_to_check)
+    ftr_boxplot <- features_boxplot(patient_merge_data,c("Tumoral"),gene_to_check)
     
     pdf("Features_boxplot_stats.pdf",width = 16,height = 8*ceiling(length(gene_to_check)/2))
     plot(ftr_boxplot)
     dev.off()
+  
+    
+    # ftr_boxplot <- features_boxplot(patient_merge_data,c("Tumoral"),KRT_gene_to_check)
+    # pdf("Features_boxplot_KRT.pdf",width = 16,height = 8*ceiling(length(KRT_gene_to_check)/2))
+    # plot(ftr_boxplot)
+    # dev.off()
+    
     # prepare multiple SCT object, by regressing the minimum median UMI
-    patient_merge_data <- PrepSCTFindMarkers(patient_merge_data,assay = "SCT")
+    # patient_merge_data <- PrepSCTFindMarkers(patient_merge_data,assay = "SCT")
     # Characterizing each cluster with his top 10 most expressed markers
+    
     patient_merge_data_marker <- FindAllMarkers(patient_merge_data,
                                                 test.use = "negbinom",
                                                 min.pct = 0.5,
                                                 logfc.threshold = 0.5)
+    
+    
     
     write.csv(patient_merge_data_marker,file = "markers_per_clusters.csv")
     
@@ -214,7 +263,7 @@ for(i in 1:length(path_list_to_file_patient)){
     # else{
     #   cluster_to_get = 1
     # }
-    sub_metrics <- patient_merge_data@meta.data[patient_merge_data@meta.data$SCT_snn_res.0.2 == 1,]
+    sub_metrics <- patient_merge_data@meta.data[patient_merge_data@meta.data$ident_annotation == "Tumoral",]
     
     sub_metrics$MAK_score <- sub_metrics$MAK_mesenchymal - sub_metrics$MAK_epithelial
     
@@ -273,7 +322,8 @@ for(i in 1:length(path_list_to_file_patient)){
     pdf("NES_score_boxplot.pdf",width = 16,height = 8)
     plot(p_NES)
     dev.off()
-      
+    
+    saveRDS(patient_merge_data,paste0("R_obj_visium",list_patient_filename[["ID_patient"]][i],".RDS"))
   }  
   setwd(result_folder_path)
 }
