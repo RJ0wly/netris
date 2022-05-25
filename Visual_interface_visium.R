@@ -54,7 +54,8 @@ ui <- fluidPage(
       textOutput("obj_text"),
       plotOutput("cluster_plot"),
       plotOutput("harmony_plot"),
-      plotOutput("feature_plot")
+      plotOutput("feature_plot"),
+      plotOutput("violin_plot")
       
       
     )
@@ -126,6 +127,15 @@ server <- function(input, output, session) {
                 features   = input$name_gene,
                 alpha      = c(0.05, 1),
                 min.cutoff = 0)
+  })
+  
+  output$violin_plot <- renderPlot({
+    req(input$name_gene)
+    req(clust_obj)
+    
+    VlnPlot(object    = clust_obj(),
+            features  = input$name_gene,
+            pt.size   = 0)
   })
 }
 
