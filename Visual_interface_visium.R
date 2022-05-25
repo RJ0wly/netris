@@ -13,7 +13,9 @@ base::lapply(c("Seurat",
                "rstatix",
                "ggplot2",
                "shiny",
-               "plotly"),
+               "plotly",
+               "shinyFeedback",
+               "shinycssloaders"),
              require, character.only=T)
 
 main_path <- getwd()
@@ -22,50 +24,47 @@ main_path <- getwd()
 list_files <- list.files(paste0(main_path,"/folder_visium"))
 
 # extract names of patients and ID of treatment and put in a list
-list_patient_filename <- list("ID_patient"   = unique(str_sub(list_files,1,6)),
-                              "ID_treatment" = unique(str_sub(list_files,-4,-1)))
-
-# create a list with the path of each visium files per patients
-path_list_to_file_patient <- list()
-for(i in 1:length(list_patient_filename[["ID_patient"]])){
-  for(j in 1:length(list_patient_filename[["ID_treatment"]])){
-    tmp_file_name <- paste0(list_patient_filename[["ID_patient"]][i],
-                            "_",
-                            list_patient_filename[["ID_treatment"]][j])
-    
-    
-    path_list_to_file_patient[[as.character(list_patient_filename[["ID_patient"]][i])]][j] = paste0(main_path,
-                                                                                                    "/folder_visium/",
-                                                                                                    tmp_file_name,
-                                                                                                    "/outs")
-  }
-}
-
-names(path_list_to_file_patient)
+patient_ID <- unique(str_sub(list_files,1,6))
 
 ui <- fluidPage(
   sidebarLayout(
     sidebarPanel(
       selectizeInput("name_patient",
-                     choices = names(path_list_to_file_patient),
-                     label = "Select patient",
+                     choices  = patient_ID,
+                     label    = "Select patient",
                      multiple = F),
       br(),
       actionButton("load_obj_data","Load data"),
       br(),
-      sliderInput("cluster_resolution", "Clustering resolution", value = 0.5, min = 0, max = 1),
+      sliderInput("cluster_resolution", "Clustering resolution", 
+                  value = 0.5, 
+                  min   = 0, 
+                  max   = 1,
+                  step  = 0.1),
       br(),
-      actionButton("cluster_resolution_action_button","Compute cluster")
+      actionButton("cluster_resolution_action_button","Compute cluster"),
+      br(),
+      selectizeInput("name_gene",
+                     choices = NULL,
+                     label = "ID genes",
+                     selected = NULL,
+                     multiple = TRUE)
     ),
     mainPanel(
-      plotOutput("cluster_plot")
+      textOutput("obj_text"),
+      plotOutput("cluster_plot"),
+      plotOutput("harmony_plot"),
+      plotOutput("feature_plot")
+      
+      
     )
   )
 )
 
 server <- function(input, output, session) {
   
-  obj_data <- eventReactive( input$load_obj_data, {
+  
+  path_data_to_data <- eventReactive( input$load_obj_data, {
     path_to_load_data <- 
       paste0(main_path,
              "/results/multiple_slices_results/",
@@ -74,31 +73,60 @@ server <- function(input, output, session) {
              as.character(input$name_patient),
              ".RDS")
     
-    obj <- readRDS(path_to_load_data)
     
-    return(obj)
+    return(path_to_load_data)
+    
   })
   
-  obj_data <- eventReactive( input$cluster_resolution_action_button, {
-    req(obj_data)
-    req(input$cluster_resolution)
+  
+  
+  obj_data <- reactive({
     
-    obj_data()  <- FindClusters(obj_data(),
-                                verbose    = FALSE,
-                                algorithm  = 4,
-                                resolution = input$cluster_resolution)
+    readRDS(path_data_to_data())
+
   })
+  
+  observeEvent(input$load_obj_data,{
+    updateSelectizeInput(session, "name_gene", choices = rownames(obj_data()@assays[["SCT"]]@counts), server = TRUE)
+  })
+  
+  
+  output$obj_text <- renderPrint({
+    obj_data()
+  })
+  
+  clust_obj <- eventReactive(
+    input$cluster_resolution_action_button, {
+      data <- obj_data()
+      
+      data <- FindClusters(object     = data,
+                           algorithm  = 4,
+                           resolution = input$cluster_resolution,
+                           verbose    = F)
+      
+    })
   
   output$cluster_plot <- renderPlot({
-              req(obj_data)
-              req(input$cluster_resolution)
-              
-              SpatialDimPlot(obj_data(),
-                         label      = TRUE,
-                         label.size = 3,
-                         group.by = c(colnames(obj_data()@meta.data)[length(obj_data()@meta.data)]))
+    SpatialDimPlot(object    = clust_obj(),
+                  label      = TRUE,
+                  label.size = 3)
+    })
+  
+  output$harmony_plot <- renderPlot({
+    DimPlot(object    = clust_obj(), 
+            reduction = "harmony")
+  })
+  
+  
+  output$feature_plot <- renderPlot({
+    req(input$name_gene)
+    req(clust_obj)
+    
+    SpatialPlot(object     = clust_obj(),
+                features   = input$name_gene,
+                alpha      = c(0.05, 1),
+                min.cutoff = 0)
   })
 }
 
 shinyApp(ui, server)
-
