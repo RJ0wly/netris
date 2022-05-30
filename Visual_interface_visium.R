@@ -77,7 +77,7 @@ ui <- fluidPage(
                      multiple = FALSE)
     ),
     mainPanel(
-      textOutput("obj_text"),
+      #textOutput("obj_text"),
       shinycssloaders::withSpinner(
         ui_element = plotOutput(outputId = "cluster_plot"),
         type       = 8,
@@ -141,9 +141,13 @@ server <- function(input, output, session) {
   })
   
   
-  output$obj_text <- renderPrint({
-    obj_data()
+  observeEvent(input$load_obj_data, {
+    showNotification("Data are loaded")
   })
+  
+  # output$obj_text <- renderPrint({
+  #   obj_data()
+  # })
   
   leiden_function <- function(object,res){
       data <- object
