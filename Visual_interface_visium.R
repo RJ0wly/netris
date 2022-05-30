@@ -253,8 +253,11 @@ server <- function(input, output, session) {
   }
   
   observeEvent(input$cluster_action_button,{
+    get_names <- names(clust_obj()@meta.data)[sapply(clust_obj()@meta.data, is.factor)]
+    filter_names <- get_names %in% c("seurat_clusters","ident_clustering")
+    get_names <- get_names[!filter_names]
     updateSelectizeInput(session, "violin_groupby", 
-                         choices = names(clust_obj()@meta.data)[sapply(clust_obj()@meta.data, is.factor)], 
+                         choices = get_names, 
                          server = TRUE)
   })
   
