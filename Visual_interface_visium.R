@@ -16,7 +16,8 @@ base::lapply(c("Seurat",
                "plotly",
                "shinyFeedback",
                "shinycssloaders",
-               "STutility"),
+               "STutility",
+               "scales"),
              require, character.only=T)
 
 main_path <- getwd()
@@ -229,17 +230,24 @@ server <- function(input, output, session) {
   violin_leiden <- function(object,res,gene_input,group_id){
     Idents(object) <- paste0("SCT_snn_res.",
                              as.character(res))
+    my_color_palette <- hue_pal()(length(levels(object@active.ident)))
     VlnPlot(object    = object,
-            group.by = group_id,
+            cols = my_color_palette,
+            group.by = "orig.ident",
+            split.by = group_id,
             features  = gene_input,
             pt.size   = 0)
     
   }
   
   violin_k_means <- function(object,gene_input,group_id){
+    
     Idents(object) <- "k_means"
+    my_color_palette <- hue_pal()(length(levels(object@active.ident)))
     VlnPlot(object    = object,
-            group.by = group_id,
+            cols = my_color_palette,
+            group.by = "orig.ident",
+            split.by = group_id,
             features  = gene_input,
             pt.size   = 0)
   }
