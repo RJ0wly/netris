@@ -1,0 +1,198 @@
+base::lapply(c("Seurat",
+               "tidyverse",
+               "SeuratObject",
+               "SeuratData",
+               "patchwork",
+               "tidyverse",
+               "singscore",
+               "escape",
+               "dittoSeq",
+               "ggpubr",
+               "ggrepel",
+               "cowplot",
+               "RColorBrewer",
+               "ggrepel",
+               "harmony",
+               "rstatix"),
+             require, character.only=T)
+
+load_visium <- Seurat::Load10X_Spatial(data.dir   = "/home/rj/Desktop/analysis/visium/visium/folder_visium/synovial_sarcoma/NYESO_144",
+                                       filename   = "filtered_feature_bc_matrix.h5",
+                                       assay      = "Spatial",
+                                       slice      = "NYESO144")
+
+# violin plot of ncounts per spot
+plot1 <- VlnPlot(load_visium, 
+                 features = colnames(load_visium@meta.data)[2], 
+                 pt.size  = 0.1) + NoLegend()
+plot2 <- SpatialFeaturePlot(load_visium, 
+                            features = colnames(load_visium@meta.data)[2]) + 
+  theme(legend.position = "right")
+display_p1_p2 <- wrap_plots(plot1, 
+                            plot2)
+
+# normalization with STC algorithm which builds regularized negative 
+# binomial models of gene expression in order to account for technical artifacts 
+# while preserving biological variance
+normalized_data <- SCTransform(load_visium, 
+                               assay   = "Spatial",
+                               verbose = FALSE)
+
+# feature plot 
+spatial_features_plot <- SpatialFeaturePlot(normalized_data, 
+                                            features = c("NTN1","UNC5B" ,"EPCAM","PTPRC","PECAM1","ACTA2"),
+                                            alpha = c(0.05, 1))
+
+SpatialFeaturePlot(normalized_data, 
+                                            features = c("NTN1" ,"EPCAM"),
+                                            alpha = c(0.05, 1))
+
+normalized_data <- RunPCA(normalized_data, 
+                          assay   = "SCT", 
+                          verbose = FALSE)
+normalized_data <- FindNeighbors(normalized_data, 
+                                 reduction = "pca", 
+                                 dims      = 1:30)
+# algorithm 4 is Leiden clustering algorithm (supposed 
+# to be better than louvain algorithm)
+normalized_data <- FindClusters(normalized_data, 
+                                verbose    = FALSE,
+                                algorithm  = 4,
+                                resolution = 0.2)
+
+normalized_data <- RunUMAP(normalized_data, 
+                           reduction = "pca", 
+                           dims      = 1:30)
+
+
+normalized_data <- RunTSNE(normalized_data,
+                           reduction = "pca",
+                           dims =  1:30)
+
+p1 <- DimPlot(normalized_data, 
+              reduction = "umap", 
+              label     = TRUE,
+              pt.size = 2)
+p2 <- SpatialDimPlot(normalized_data, 
+                     label      = TRUE,
+                     label.size = 3)
+p3 <- p1 + p2
+
+data <- as.data.frame(t(as.matrix(normalized_data@assays[["SCT"]]@data)))
+
+data[,"NTN1"]
+
+normalized_data@meta.data$NTN1 <- data[,"NTN1"]
+
+normalized_data@meta.data <- normalized_data@meta.data %>% mutate(NTN1_status = case_when(NTN1 > quantile(normalized_data@meta.data$NTN1,0.4) ~ "High",
+                                                                                          TRUE ~ "Low"))
+median(normalized_data@meta.data[normalized_data@meta.data$NTN1_status == "High",]$NTN1)
+
+Idents(normalized_data) <- "NTN1_status"
+normalized_data_data_marker <- FindAllMarkers(normalized_data,
+                                            test.use = "bimod",
+                                            min.pct = 0.15,
+                                            logfc.threshold = 0.15)
+
+normalized_data_data_marker %>%
+  group_by(cluster) %>%
+  top_n(n = 10, wt = avg_log2FC) -> top10
+
+p_hm <- DoHeatmap(normalized_data, 
+                  features = top10$gene) + NoLegend()  +
+  scale_fill_gradientn(colors = c("seagreen3", "black", "brown1"))
+
+
+TF<-read.table("/home/rj/Desktop/analysis/visium/visium/TF.txt")
+NY_144 <- intersect(TF$V1,rownames(normalized_data_data_marker))
+
+
+load_visium <- Seurat::Load10X_Spatial(data.dir   = "/home/rj/Desktop/analysis/visium/visium/folder_visium/synovial_sarcoma/NYESO_181",
+                                       filename   = "filtered_feature_bc_matrix.h5",
+                                       assay      = "Spatial",
+                                       slice      = "NYESO181")
+
+# violin plot of ncounts per spot
+plot1 <- VlnPlot(load_visium, 
+                 features = colnames(load_visium@meta.data)[2], 
+                 pt.size  = 0.1) + NoLegend()
+plot2 <- SpatialFeaturePlot(load_visium, 
+                            features = colnames(load_visium@meta.data)[2]) + 
+  theme(legend.position = "right")
+display_p1_p2 <- wrap_plots(plot1, 
+                            plot2)
+
+# normalization with STC algorithm which builds regularized negative 
+# binomial models of gene expression in order to account for technical artifacts 
+# while preserving biological variance
+normalized_data <- SCTransform(load_visium, 
+                               assay   = "Spatial",
+                               verbose = FALSE)
+
+# feature plot 
+spatial_features_plot <- SpatialFeaturePlot(normalized_data, 
+                                            features = c("NTN1","UNC5B" ,"EPCAM","PTPRC","PECAM1","ACTA2"),
+                                            alpha = c(0.05, 1))
+
+SpatialFeaturePlot(normalized_data, 
+                   features = c("NTN1" ,"EPCAM"),
+                   alpha = c(0.05, 1))
+
+normalized_data <- RunPCA(normalized_data, 
+                          assay   = "SCT", 
+                          verbose = FALSE)
+normalized_data <- FindNeighbors(normalized_data, 
+                                 reduction = "pca", 
+                                 dims      = 1:30)
+# algorithm 4 is Leiden clustering algorithm (supposed 
+# to be better than louvain algorithm)
+normalized_data <- FindClusters(normalized_data, 
+                                verbose    = FALSE,
+                                algorithm  = 4,
+                                resolution = 0.2)
+
+normalized_data <- RunUMAP(normalized_data, 
+                           reduction = "pca", 
+                           dims      = 1:30)
+
+
+normalized_data <- RunTSNE(normalized_data,
+                           reduction = "pca",
+                           dims =  1:30)
+
+p1 <- DimPlot(normalized_data, 
+              reduction = "umap", 
+              label     = TRUE,
+              pt.size = 2)
+p2 <- SpatialDimPlot(normalized_data, 
+                     label      = TRUE,
+                     label.size = 3)
+p3 <- p1 + p2
+
+data <- as.data.frame(t(as.matrix(normalized_data@assays[["SCT"]]@data)))
+
+data[,"NTN1"]
+
+normalized_data@meta.data$NTN1 <- data[,"NTN1"]
+
+normalized_data@meta.data <- normalized_data@meta.data %>% mutate(NTN1_status = case_when(NTN1 > quantile(normalized_data@meta.data$NTN1,0.4) ~ "High",
+                                                                                          TRUE ~ "Low"))
+median(normalized_data@meta.data[normalized_data@meta.data$NTN1_status == "High",]$NTN1)
+
+Idents(normalized_data) <- "NTN1_status"
+normalized_data_data_marker <- FindAllMarkers(normalized_data,
+                                              test.use = "bimod",
+                                              min.pct = 0.15,
+                                              logfc.threshold = 0.15)
+
+normalized_data_data_marker %>%
+  group_by(cluster) %>%
+  top_n(n = 10, wt = avg_log2FC) -> top10
+
+p_hm <- DoHeatmap(normalized_data, 
+                  features = top10$gene) + NoLegend()  +
+  scale_fill_gradientn(colors = c("seagreen3", "black", "brown1"))
+
+
+TF<-read.table("/home/rj/Desktop/analysis/visium/visium/TF.txt")
+NY_186 <- intersect(TF$V1,rownames(normalized_data_data_marker))
